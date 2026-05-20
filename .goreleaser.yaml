@@ -24,7 +24,7 @@ archives:
 
 release:
   github:
-    owner: vuldin
+    owner: redpanda-data
     name: redpanda-check
   prerelease: auto
   replace_existing_artifacts: true
