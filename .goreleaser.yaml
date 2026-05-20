@@ -4,7 +4,7 @@ dist: target/dist
 version: 2
 
 builds:
-  - id: redpanda-check
+  - id: check
     main: cmd/redpanda-check/main.go
     binary: redpanda-check
     goos: [darwin, linux]
@@ -17,7 +17,7 @@ builds:
 
 archives:
   - id: redpanda-check
-    ids: [redpanda-check]
+    ids: [check]
     formats: tar.gz
     files:
       - README.md
