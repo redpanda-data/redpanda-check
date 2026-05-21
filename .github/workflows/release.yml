@@ -41,8 +41,8 @@ jobs:
         with:
           aws_region: us-west-2
           aws_s3_bucket: rpk-plugins-repo
-          artifacts_file: target/dist/artifacts.json
-          metadata_file: target/dist/metadata.json
+          artifacts_file: ${{ github.workspace }}/target/dist/artifacts.json
+          metadata_file: ${{ github.workspace }}/target/dist/metadata.json
           project_root_dir: ${{ github.workspace }}
           plugin_name: check
           goos: linux,darwin
