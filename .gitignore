@@ -1,2 +1,8 @@
 redpanda-check
 dist/
+
+# Python (resources/plugin_uploader)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
