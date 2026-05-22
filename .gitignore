@@ -1,4 +1,4 @@
-redpanda-check
+/redpanda-check
 dist/
 
 # Python (resources/plugin_uploader)
