@@ -49,6 +49,16 @@ By default only failed and warning checks are shown. Use -a to see all results.`
 				fmt.Println(version)
 				return nil
 			}
+			// Env-var fallback for SASL credentials. Lets callers (notably
+			// `rpk check`) pass the password without putting it on the
+			// command line, where it would leak via process listings and
+			// rpk's plugin-args debug log. Flags win if both are set.
+			if saslUser == "" {
+				saslUser = os.Getenv("REDPANDA_SASL_USERNAME")
+			}
+			if saslPass == "" {
+				saslPass = os.Getenv("REDPANDA_SASL_PASSWORD")
+			}
 			return run(cmd.Context(), runConfig{
 				adminURLs:     adminURLs,
 				tlsCA:         tlsCA,
@@ -71,8 +81,8 @@ By default only failed and warning checks are shown. Use -a to see all results.`
 	f.StringVar(&tlsCert, "admin-tls-cert", "", "TLS client certificate path")
 	f.StringVar(&tlsKey, "admin-tls-key", "", "TLS client key path")
 	f.BoolVar(&tlsSkipVerify, "admin-tls-skip-verify", false, "Skip TLS certificate verification (insecure)")
-	f.StringVar(&saslUser, "sasl-user", "", "SASL username for admin API basic auth")
-	f.StringVar(&saslPass, "sasl-password", "", "SASL password")
+	f.StringVar(&saslUser, "sasl-user", "", "SASL username for admin API basic auth (or REDPANDA_SASL_USERNAME env var)")
+	f.StringVar(&saslPass, "sasl-password", "", "SASL password (or REDPANDA_SASL_PASSWORD env var; prefer env var to avoid leaking via process listings)")
 	f.StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (enables K8s checks)")
 	f.StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file")
 	f.StringVar(&format, "format", "text", "Output format: text, json")
