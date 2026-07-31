@@ -55,13 +55,18 @@ jobs:
       # subtree of its rpk command snapshot and opens a PR per eligible docs
       # branch. Re-assumes the org-standard role because the plugin-upload
       # role above has no Secrets Manager access.
+      # Best-effort docs notification: the release artifacts are already
+      # published above, so a failure in the docs dispatch chain must not
+      # mark the release run as failed.
       - name: Configure AWS credentials for Secrets Manager
+        continue-on-error: true
         if: startsWith(github.ref, 'refs/tags/v')
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ vars.RP_AWS_CRED_REGION }}
           role-to-assume: arn:aws:iam::${{ secrets.RP_AWS_CRED_ACCOUNT_ID }}:role/${{ vars.RP_AWS_CRED_BASE_ROLE_NAME }}${{ github.event.repository.name }}
       - name: Fetch actions bot token
+        continue-on-error: true
         if: startsWith(github.ref, 'refs/tags/v')
         uses: aws-actions/aws-secretsmanager-get-secrets@v2
         with:
@@ -69,6 +74,7 @@ jobs:
             ,sdlc/prod/github/actions_bot_token
           parse-json-secrets: true
       - name: Trigger rpk check plugin docs update in redpanda-data/docs
+        continue-on-error: true
         if: startsWith(github.ref, 'refs/tags/v')
         uses: peter-evans/repository-dispatch@v2
         with:
