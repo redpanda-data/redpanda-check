@@ -73,6 +73,13 @@ jobs:
           secret-ids: |
             ,sdlc/prod/github/actions_bot_token
           parse-json-secrets: true
+      # Strip the tag's v prefix so the dispatched version matches the
+      # connect sender's format (the docs receiver normalizes either form
+      # today, but the senders should agree).
+      - name: Resolve plugin version from tag
+        id: ver
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - name: Trigger rpk check plugin docs update in redpanda-data/docs
         continue-on-error: true
         if: startsWith(github.ref, 'refs/tags/v')
@@ -81,4 +88,4 @@ jobs:
           token: ${{ env.ACTIONS_BOT_TOKEN }}
           repository: redpanda-data/docs
           event-type: update-rpk-plugin-docs
-          client-payload: '{"plugin": "check", "version": "${{ github.ref_name }}"}'
+          client-payload: '{"plugin": "check", "version": "${{ steps.ver.outputs.version }}"}'
