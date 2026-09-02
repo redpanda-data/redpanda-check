@@ -49,3 +49,43 @@ jobs:
           goarch: amd64,arm64
           repo_hostname: rpk-plugins.redpanda.com
           dry_run: "false"
+
+      # Regenerate the rpk check plugin docs in redpanda-data/docs. The docs
+      # workflow (update-rpk-plugin-docs.yml) refreshes only the check
+      # subtree of its rpk command snapshot and opens a PR per eligible docs
+      # branch. Re-assumes the org-standard role because the plugin-upload
+      # role above has no Secrets Manager access.
+      # Best-effort docs notification: the release artifacts are already
+      # published above, so a failure in the docs dispatch chain must not
+      # mark the release run as failed.
+      - name: Configure AWS credentials for Secrets Manager
+        continue-on-error: true
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ vars.RP_AWS_CRED_REGION }}
+          role-to-assume: arn:aws:iam::${{ secrets.RP_AWS_CRED_ACCOUNT_ID }}:role/${{ vars.RP_AWS_CRED_BASE_ROLE_NAME }}${{ github.event.repository.name }}
+      - name: Fetch actions bot token
+        continue-on-error: true
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: aws-actions/aws-secretsmanager-get-secrets@v2
+        with:
+          secret-ids: |
+            ,sdlc/prod/github/actions_bot_token
+          parse-json-secrets: true
+      # Strip the tag's v prefix so the dispatched version matches the
+      # connect sender's format (the docs receiver normalizes either form
+      # today, but the senders should agree).
+      - name: Resolve plugin version from tag
+        id: ver
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Trigger rpk check plugin docs update in redpanda-data/docs
+        continue-on-error: true
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ env.ACTIONS_BOT_TOKEN }}
+          repository: redpanda-data/docs
+          event-type: update-rpk-plugin-docs
+          client-payload: '{"plugin": "check", "version": "${{ steps.ver.outputs.version }}"}'
