@@ -48,7 +48,7 @@ Use this when the host running `rpk` has no network path to
 `rpk-plugins.redpanda.com`. First get the binary onto the host through some other channel
 then place it where `rpk`'s plugin loader expects a *managed* plugin to live.
 
-1. Obtain a `redpanda-check` binary for the target OS/architecture. This can come from Redpanda customer success team, or you can build your own following the first part of the standalone binary steps below.
+1. Obtain a `redpanda-check` binary for the target OS/architecture. This can come from Redpanda customer success team, or you can build your own — the "build from source" route in [Standalone binary](#3-standalone-binary) below leaves a `redpanda-check` file directly in your working directory, ready for the next step.
 2. Copy it into `rpk`'s default plugin directory (`~/.local/bin`) under the
    exact filename `rpk` looks for:
 
@@ -87,7 +87,18 @@ pipelines or any context where you don't want `rpk` involved at all.
 go install github.com/vuldin/redpanda-check/cmd/redpanda-check@latest
 ```
 
-Or build from source:
+This does not place the binary in your current directory. It's written to
+`$(go env GOBIN)` if that's set, otherwise `$(go env GOPATH)/bin` (`~/go/bin`
+by default). Find it and run it from there, or add that directory to `PATH`:
+
+```
+ls "$(go env GOBIN)" 2>/dev/null || ls "$(go env GOPATH)/bin"
+"$(go env GOBIN)"/redpanda-check --help 2>/dev/null || "$(go env GOPATH)"/bin/redpanda-check --help
+```
+
+Or build from source, which puts the binary directly in your current
+directory (and is what you'd do to get a `redpanda-check` file ready to copy
+for the manual managed-plugin install in option 2 above):
 
 ```
 git clone https://github.com/redpanda-data/redpanda-check.git
