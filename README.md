@@ -2,18 +2,106 @@
 
 Production readiness validation for Redpanda deployments. Connects to the Redpanda admin API and checks cluster health, configuration, resource allocation, and operational best practices.
 
-Designed to run as a standalone binary or as an [rpk managed plugin](https://docs.redpanda.com/current/reference/rpk/).
+Designed to run as an [rpk managed plugin](https://docs.redpanda.com/current/reference/rpk/) or as a standalone binary.
 
-## Install
+## Installation
+
+There are three ways to get `redpanda-check` running. They're listed here in
+order of recommendation; pick the one that matches your environment.
+
+### 1. Automated: rpk managed plugin (recommended)
+
+Requires `rpk` v26.2.1 or later. Just run:
+
+```
+rpk check
+```
+
+On first use, `rpk` auto-downloads the latest release, verifies its checksum,
+and caches it; no separate install step needed. It also manages upgrades:
+
+```
+rpk check install                          # install the latest version
+rpk check install --check-version 0.1.2    # install a specific version, if still published
+rpk check upgrade                          # upgrade the cached copy
+rpk check uninstall                        # remove it
+rpk check --version                        # print the installed plugin version
+```
+
+> Note: `--check-version` only works for a version still retained in the published
+plugin manifest, which is not necessarily every historical GitHub release tag. Older
+versions get pruned as new ones ship (at the time of writing, only the two
+most recent releases are retained). Requesting a pruned version fails with
+`unable to find version "X"; you may install 'redpanda-check' manually`.
+
+When invoked this way, `rpk check` also fills in `--admin-url` and any
+TLS/SASL connection details from your active rpk profile if you don't pass
+them explicitly, so it behaves like any other `rpk` subcommand rather than a
+separately-configured tool.
+
+See the [rpk check reference](https://docs.redpanda.com/current/reference/rpk/rpk-check/rpk-check/)
+for the full command reference.
+
+### 2. Manual: install as a managed plugin (offline / air-gapped environments)
+
+Use this when the host running `rpk` has no network path to
+`rpk-plugins.redpanda.com`. First get the binary onto the host through some other channel
+then place it where `rpk`'s plugin loader expects a *managed* plugin to live.
+
+1. Obtain a `redpanda-check` binary for the target OS/architecture. This can come from Redpanda customer success team, or you can build your own — the "build from source" route in [Standalone binary](#3-standalone-binary) below leaves a `redpanda-check` file directly in your working directory, ready for the next step.
+2. Copy it into `rpk`'s default plugin directory (`~/.local/bin`) under the
+   exact filename `rpk` looks for:
+
+   ```
+   mkdir -p ~/.local/bin
+   cp redpanda-check ~/.local/bin/.rpk.managed-check
+   chmod 755 ~/.local/bin/.rpk.managed-check
+   ```
+
+3. Confirm `rpk` picks it up:
+
+   ```
+   rpk check --version
+   rpk check
+   ```
+
+`rpk check install`, `upgrade`, and `uninstall` all work against a manually
+placed binary exactly as they would against an auto-downloaded one (`install`
+reports it's already present, `uninstall` removes the file, and so on) — none
+of that requires network access. `rpk` only reaches out to the network when it
+needs to *download* a version it doesn't already have on disk, so once the
+binary is in place, every other `rpk check` operation is fully offline.
+
+If the binary is instead named `~/.local/bin/.rpk-check` (no `.managed`
+segment), `rpk` still finds and runs it as a plain plugin, but prints a
+one-time warning that it isn't rpk-managed and won't respond to
+`install`/`upgrade`/`uninstall`. Use the `.managed` filename above to avoid
+that and get full managed-plugin behavior.
+
+### 3. Standalone binary
+
+Run `redpanda-check` directly, independent of `rpk` entirely. Useful for CI
+pipelines or any context where you don't want `rpk` involved at all.
 
 ```
 go install github.com/vuldin/redpanda-check/cmd/redpanda-check@latest
 ```
 
-Or build from source:
+This does not place the binary in your current directory. It's written to
+`$(go env GOBIN)` if that's set, otherwise `$(go env GOPATH)/bin` (`~/go/bin`
+by default). Find it and run it from there, or add that directory to `PATH`:
 
 ```
-git clone https://github.com/vuldin/redpanda-check.git
+ls "$(go env GOBIN)" 2>/dev/null || ls "$(go env GOPATH)/bin"
+"$(go env GOBIN)"/redpanda-check --help 2>/dev/null || "$(go env GOPATH)"/bin/redpanda-check --help
+```
+
+Or build from source, which puts the binary directly in your current
+directory (and is what you'd do to get a `redpanda-check` file ready to copy
+for the manual managed-plugin install in option 2 above):
+
+```
+git clone https://github.com/redpanda-data/redpanda-check.git
 cd redpanda-check
 go build -o redpanda-check ./cmd/redpanda-check
 ```
@@ -129,23 +217,6 @@ Best practices. Failures produce warnings but do not affect exit code.
 | kubernetes_version | Kubernetes nodes running a supported version (K8s) |
 | version_recency | Redpanda version is the latest or N-1 (warns at N-2 approaching EOL) |
 | network_policies | At least one NetworkPolicy exists in namespace (K8s) |
-
-## rpk plugin integration
-
-This binary is distributed as an rpk managed plugin. Once the rpk integration PR is merged, `rpk check` auto-installs the binary on first run and injects admin API connection details from your rpk profile:
-
-```
-rpk check
-rpk check install
-rpk check upgrade
-rpk check uninstall
-```
-
-For manual installation (or testing before the manifest is published):
-
-```
-cp redpanda-check ~/.local/bin/.rpk.managed-check
-```
 
 ## Releasing
 
