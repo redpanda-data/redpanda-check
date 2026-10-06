@@ -17,7 +17,9 @@ import (
 
 var version = "dev"
 
-func main() {
+// newRootCmd builds the root command. Split out from main so it's testable
+// without exec'ing the binary.
+func newRootCmd() *cobra.Command {
 	var (
 		adminURLs     []string
 		tlsCA         string
@@ -44,6 +46,12 @@ best practices. Connects to the Redpanda admin API directly.
 By default only failed and warning checks are shown. Use -a to see all results.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// This binary has no subcommands of its own -- rpk's managed-plugin
+		// layer owns install/uninstall/upgrade and intercepts them before
+		// ever exec'ing this binary. So a positional argument here is always
+		// a mistake (e.g. a typo of "upgrade"), not a legitimate input, and
+		// must be rejected rather than silently ignored (redpanda-check#15).
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if showVersion {
 				fmt.Println(version)
@@ -89,13 +97,17 @@ By default only failed and warning checks are shown. Use -a to see all results.`
 	f.BoolVarP(&showAll, "all", "a", false, "Show all checks including passing and skipped")
 	f.BoolVar(&showVersion, "version", false, "Print version and exit")
 
+	return root
+}
+
+func main() {
 	// Handle --help-autocomplete for rpk plugin integration.
 	if len(os.Args) > 1 && os.Args[1] == "--help-autocomplete" {
 		printAutocomplete()
 		return
 	}
 
-	if err := root.Execute(); err != nil {
+	if err := newRootCmd().Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
