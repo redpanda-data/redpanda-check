@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -1087,27 +1088,84 @@ func TestDebugBundlePermissions_Warn(t *testing.T) {
 
 func TestDebugBundlePermissions_Skip_NotImplemented(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{{NodeID: 0}}),
 		"/v1/debug/bundle/check_permissions": func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 		},
 	})
 	checks.DebugBundlePermissions(context.Background(), pc)
 
-	if pc.Results[0].Status != checker.StatusSkip {
-		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	r := pc.Results[0]
+	if r.Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", r.Status, r.Details)
+	}
+	// Regression guard: the 404 must be read off the returned error (rpadmin
+	// never returns a response alongside a non-2xx status), not off a
+	// resp.StatusCode switch, which is unreachable and previously left this
+	// message never actually produced.
+	if !strings.Contains(r.Details, "not available on this broker version") {
+		t.Errorf("expected the specific 'not available' message, got: %s", r.Details)
 	}
 }
 
 func TestDebugBundlePermissions_Skip_NoSuperuser(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{{NodeID: 0}}),
 		"/v1/debug/bundle/check_permissions": func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusForbidden)
 		},
 	})
 	checks.DebugBundlePermissions(context.Background(), pc)
 
-	if pc.Results[0].Status != checker.StatusSkip {
-		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	r := pc.Results[0]
+	if r.Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", r.Status, r.Details)
+	}
+	if !strings.Contains(r.Details, "Requires superuser credentials") {
+		t.Errorf("expected the specific 'requires superuser' message, got: %s", r.Details)
+	}
+}
+
+func TestDebugBundlePermissions_Skip_NotImplemented_MultipleAdminURLs(t *testing.T) {
+	// Regression test for redpanda-check#13: with more than one admin URL
+	// configured (the recommended setup, since per-broker checks need all
+	// brokers), the check must still report the clear "endpoint not
+	// available" SKIP rather than rpadmin's generic
+	// "unable to issue a single-admin-endpoint request to N admin
+	// endpoints" error, which reads like a client/profile misconfiguration
+	// rather than a missing endpoint.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/brokers", jsonHandler(t, []rpadmin.Broker{{NodeID: 0}}))
+	mux.HandleFunc("/v1/node_config", jsonHandler(t, map[string]any{}))
+	mux.HandleFunc("/v1/debug/bundle/check_permissions", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	// Two URLs pointing at the same backend is enough to trigger rpadmin's
+	// "more than one admin URL" path in SendOneStream.
+	client, err := rpadmin.NewAdminAPI([]string{srv.URL, srv.URL}, &rpadmin.NopAuth{}, nil)
+	if err != nil {
+		t.Fatalf("unable to create admin client: %v", err)
+	}
+	t.Cleanup(client.Close)
+
+	pc := &checker.ProductionChecker{AdminClient: client, Namespace: "redpanda"}
+	checks.DebugBundlePermissions(context.Background(), pc)
+
+	if len(pc.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(pc.Results))
+	}
+	r := pc.Results[0]
+	if r.Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", r.Status, r.Details)
+	}
+	if strings.Contains(r.Details, "single-admin-endpoint") {
+		t.Errorf("got the masked rpadmin multi-endpoint error instead of a clear message: %s", r.Details)
+	}
+	if !strings.Contains(r.Details, "not available on this broker version") {
+		t.Errorf("expected 'not available on this broker version' in details, got: %s", r.Details)
 	}
 }
 
