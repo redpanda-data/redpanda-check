@@ -105,11 +105,18 @@ func printSection(w io.Writer, title string, checks []CheckResult, verbose bool)
 			tag = "SKIP"
 		}
 
-		fmt.Fprintf(w, "%-4s  %s\n", tag, c.Description)
+		first := c.Description
+		var lines []string
 		if c.Details != "" {
-			for _, line := range strings.Split(c.Details, "\n") {
-				fmt.Fprintf(w, "      %s\n", line)
+			lines = strings.Split(c.Details, "\n")
+			if lines[0] != "" {
+				first = lines[0]
+				lines = lines[1:]
 			}
+		}
+		fmt.Fprintf(w, "%-4s  %s\n", tag, first)
+		for _, line := range lines {
+			fmt.Fprintf(w, "      %s\n", line)
 		}
 	}
 	fmt.Fprintln(w)
