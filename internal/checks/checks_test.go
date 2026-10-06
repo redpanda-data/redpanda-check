@@ -188,13 +188,29 @@ func TestVersionConsistency_Pass_NMinus2_StillSupported(t *testing.T) {
 	// N-2 is still supported by VersionConsistency; VersionRecency emits the WARN.
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
 		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
-			{NodeID: 0, Version: "v25.2.0"},
+			{NodeID: 0, Version: "v25.3.0"},
 		}),
 	})
 	checks.VersionConsistency(context.Background(), pc)
 
 	if pc.Results[0].Status != checker.StatusPass {
 		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestVersionConsistency_Fail_NMinus3_NoLongerSupported(t *testing.T) {
+	// Regression test for redpanda-check#14: with the release table current
+	// (26.2 latest), 25.2 is N-3 and must FAIL as unsupported -- not PASS as
+	// "N-2" the way a stale table (26.1 treated as latest) used to grade it.
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, Version: "v25.2.0"},
+		}),
+	})
+	checks.VersionConsistency(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
 	}
 }
 
@@ -257,7 +273,7 @@ func TestVersionRecency_Pass_Latest(t *testing.T) {
 func TestVersionRecency_Pass_NMinus1(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
 		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
-			{NodeID: 0, Version: "v25.3.0"},
+			{NodeID: 0, Version: "v26.1.0"},
 		}),
 	})
 	checks.VersionRecency(context.Background(), pc)
@@ -270,7 +286,7 @@ func TestVersionRecency_Pass_NMinus1(t *testing.T) {
 func TestVersionRecency_Warn_NMinus2(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
 		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
-			{NodeID: 0, Version: "v25.2.0"},
+			{NodeID: 0, Version: "v25.3.0"},
 		}),
 	})
 	checks.VersionRecency(context.Background(), pc)
