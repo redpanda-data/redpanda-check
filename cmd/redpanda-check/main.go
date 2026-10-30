@@ -264,12 +264,16 @@ func resolveNamespace(ns string) string {
 	return "redpanda"
 }
 
+// pluginHelp is one entry of the --help-autocomplete output rpk reads.
+// Use is the command's cobra Use line, positional arguments included, so
+// rpk can print them in the command's usage. Older rpk ignores it.
 type pluginHelp struct {
 	Path    string       `json:"path"`
 	Short   string       `json:"short"`
 	Long    string       `json:"long"`
 	Example string       `json:"example"`
 	Args    []string     `json:"args"`
+	Use     string       `json:"use"`
 	Flags   []pluginFlag `json:"flags"`
 }
 
@@ -316,6 +320,7 @@ func walkHelps(cmd *cobra.Command, path string, out *[]pluginHelp) {
 		Long:    cmd.Long,
 		Example: cmd.Example,
 		Args:    args,
+		Use:     cmd.Use,
 		Flags:   flags,
 	})
 	for _, sub := range cmd.Commands() {

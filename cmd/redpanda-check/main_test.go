@@ -22,6 +22,7 @@ type autocompleteEntry struct {
 	Short string             `json:"short"`
 	Long  string             `json:"long"`
 	Args  []string           `json:"args"`
+	Use   string             `json:"use"`
 	Flags []autocompleteFlag `json:"flags"`
 }
 
@@ -113,7 +114,7 @@ func TestAutocompleteSubcommands(t *testing.T) {
 	root := newRootCmd()
 	root.InitDefaultHelpCmd()
 	root.InitDefaultCompletionCmd()
-	sub := &cobra.Command{Use: "sub", Short: "a sub", Run: func(*cobra.Command, []string) {}}
+	sub := &cobra.Command{Use: "sub <target>", Short: "a sub", Run: func(*cobra.Command, []string) {}}
 	sub.Flags().Int("count", 3, "a count")
 	root.AddCommand(sub)
 
@@ -125,6 +126,12 @@ func TestAutocompleteSubcommands(t *testing.T) {
 	if e.Path != "check_sub" || len(e.Flags) != 1 || e.Flags[0].Name != "count" {
 		t.Fatalf("unexpected sub entry: %+v", e)
 	}
+	if e.Use != "sub <target>" {
+		t.Errorf("sub use %q, want the full cobra Use line %q", e.Use, "sub <target>")
+	}
+	if entries[0].Use != "redpanda-check" {
+		t.Errorf("root use %q, want %q", entries[0].Use, "redpanda-check")
+	}
 	if d, ok := e.Flags[0].Default.(float64); !ok || d != 3 {
 		t.Errorf("count default %#v, want number 3", e.Flags[0].Default)
 	}
@@ -135,7 +142,7 @@ func TestAutocompleteSubcommands(t *testing.T) {
 	if err := printAutocomplete(&buf, root); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte(`"path":"check_bare","short":"","long":"","example":"","args":[],"flags":[]`)) {
+	if !bytes.Contains(buf.Bytes(), []byte(`"path":"check_bare","short":"","long":"","example":"","args":[],"use":"bare","flags":[]`)) {
 		t.Errorf("bare entry missing empty arrays: %s", buf.String())
 	}
 }
