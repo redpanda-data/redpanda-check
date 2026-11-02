@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -188,13 +189,29 @@ func TestVersionConsistency_Pass_NMinus2_StillSupported(t *testing.T) {
 	// N-2 is still supported by VersionConsistency; VersionRecency emits the WARN.
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
 		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
-			{NodeID: 0, Version: "v25.2.0"},
+			{NodeID: 0, Version: "v25.3.0"},
 		}),
 	})
 	checks.VersionConsistency(context.Background(), pc)
 
 	if pc.Results[0].Status != checker.StatusPass {
 		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestVersionConsistency_Fail_NMinus3_NoLongerSupported(t *testing.T) {
+	// Regression test for redpanda-check#14: with the release table current
+	// (26.2 latest), 25.2 is N-3 and must FAIL as unsupported -- not PASS as
+	// "N-2" the way a stale table (26.1 treated as latest) used to grade it.
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, Version: "v25.2.0"},
+		}),
+	})
+	checks.VersionConsistency(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
 	}
 }
 
@@ -257,7 +274,7 @@ func TestVersionRecency_Pass_Latest(t *testing.T) {
 func TestVersionRecency_Pass_NMinus1(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
 		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
-			{NodeID: 0, Version: "v25.3.0"},
+			{NodeID: 0, Version: "v26.1.0"},
 		}),
 	})
 	checks.VersionRecency(context.Background(), pc)
@@ -270,7 +287,7 @@ func TestVersionRecency_Pass_NMinus1(t *testing.T) {
 func TestVersionRecency_Warn_NMinus2(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
 		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
-			{NodeID: 0, Version: "v25.2.0"},
+			{NodeID: 0, Version: "v25.3.0"},
 		}),
 	})
 	checks.VersionRecency(context.Background(), pc)
@@ -357,6 +374,98 @@ func TestOverprovisioned_Pass(t *testing.T) {
 
 	if pc.Results[0].Status != checker.StatusPass {
 		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestOverprovisioned_Fail_Enabled(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"overprovisioned": true,
+		}),
+	})
+	checks.Overprovisioned(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestOverprovisioned_Skip_KeyAbsent(t *testing.T) {
+	// Regression test for redpanda-check#11: /v1/node_config never returns
+	// the rpk: section in practice, so "overprovisioned" is always absent.
+	// That must SKIP, not silently PASS a cluster that's actually
+	// overprovisioned.
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"some_other_key": true,
+		}),
+	})
+	checks.Overprovisioned(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+// --- BallastFile ---
+
+func TestBallastFile_Pass(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"ballast_file_path": "/var/lib/redpanda/data/ballast",
+			"ballast_file_size": "1000000000",
+		}),
+	})
+	checks.BallastFile(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestBallastFile_Warn_NotConfigured(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"ballast_file_path": "",
+			"ballast_file_size": "",
+		}),
+	})
+	checks.BallastFile(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusWarn {
+		t.Errorf("expected WARN, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestBallastFile_Skip_KeysAbsent(t *testing.T) {
+	// Regression test for redpanda-check#12: /v1/node_config never returns
+	// the rpk: section in practice, so ballast_file_path/size are always
+	// absent. That must SKIP, not WARN a broker that actually has a
+	// correctly configured ballast file.
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"some_other_key": true,
+		}),
+	})
+	checks.BallastFile(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
 	}
 }
 
@@ -1087,27 +1196,84 @@ func TestDebugBundlePermissions_Warn(t *testing.T) {
 
 func TestDebugBundlePermissions_Skip_NotImplemented(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{{NodeID: 0}}),
 		"/v1/debug/bundle/check_permissions": func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 		},
 	})
 	checks.DebugBundlePermissions(context.Background(), pc)
 
-	if pc.Results[0].Status != checker.StatusSkip {
-		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	r := pc.Results[0]
+	if r.Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", r.Status, r.Details)
+	}
+	// Regression guard: the 404 must be read off the returned error (rpadmin
+	// never returns a response alongside a non-2xx status), not off a
+	// resp.StatusCode switch, which is unreachable and previously left this
+	// message never actually produced.
+	if !strings.Contains(r.Details, "not available on this broker version") {
+		t.Errorf("expected the specific 'not available' message, got: %s", r.Details)
 	}
 }
 
 func TestDebugBundlePermissions_Skip_NoSuperuser(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{{NodeID: 0}}),
 		"/v1/debug/bundle/check_permissions": func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusForbidden)
 		},
 	})
 	checks.DebugBundlePermissions(context.Background(), pc)
 
-	if pc.Results[0].Status != checker.StatusSkip {
-		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	r := pc.Results[0]
+	if r.Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", r.Status, r.Details)
+	}
+	if !strings.Contains(r.Details, "Requires superuser credentials") {
+		t.Errorf("expected the specific 'requires superuser' message, got: %s", r.Details)
+	}
+}
+
+func TestDebugBundlePermissions_Skip_NotImplemented_MultipleAdminURLs(t *testing.T) {
+	// Regression test for redpanda-check#13: with more than one admin URL
+	// configured (the recommended setup, since per-broker checks need all
+	// brokers), the check must still report the clear "endpoint not
+	// available" SKIP rather than rpadmin's generic
+	// "unable to issue a single-admin-endpoint request to N admin
+	// endpoints" error, which reads like a client/profile misconfiguration
+	// rather than a missing endpoint.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/brokers", jsonHandler(t, []rpadmin.Broker{{NodeID: 0}}))
+	mux.HandleFunc("/v1/node_config", jsonHandler(t, map[string]any{}))
+	mux.HandleFunc("/v1/debug/bundle/check_permissions", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	// Two URLs pointing at the same backend is enough to trigger rpadmin's
+	// "more than one admin URL" path in SendOneStream.
+	client, err := rpadmin.NewAdminAPI([]string{srv.URL, srv.URL}, &rpadmin.NopAuth{}, nil)
+	if err != nil {
+		t.Fatalf("unable to create admin client: %v", err)
+	}
+	t.Cleanup(client.Close)
+
+	pc := &checker.ProductionChecker{AdminClient: client, Namespace: "redpanda"}
+	checks.DebugBundlePermissions(context.Background(), pc)
+
+	if len(pc.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(pc.Results))
+	}
+	r := pc.Results[0]
+	if r.Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", r.Status, r.Details)
+	}
+	if strings.Contains(r.Details, "single-admin-endpoint") {
+		t.Errorf("got the masked rpadmin multi-endpoint error instead of a clear message: %s", r.Details)
+	}
+	if !strings.Contains(r.Details, "not available on this broker version") {
+		t.Errorf("expected 'not available on this broker version' in details, got: %s", r.Details)
 	}
 }
 

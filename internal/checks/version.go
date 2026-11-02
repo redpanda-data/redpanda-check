@@ -11,14 +11,18 @@ import (
 // ships. Versions >= this one are treated as current (PASS). Versions at N-1
 // are also PASS. N-2 triggers the Recommended "approaching EOL" warning.
 // Anything older than N-2 is treated as unsupported (Critical FAIL).
+//
+// version_test.go asserts redpandaReleaseOrder[0] matches this constant, so
+// bumping one without the other fails the build (redpanda-check#14).
 const redpandaLatestMajor = 26
-const redpandaLatestMinor = 1
+const redpandaLatestMinor = 2
 
 // Ordered sequence of Redpanda major.minor releases used to derive
 // "how many minor versions back from latest" for a given broker version.
 // Most recent first. When a new release ships, prepend it here and bump
 // redpandaLatestMajor/redpandaLatestMinor.
 var redpandaReleaseOrder = []string{
+	"26.2",
 	"26.1",
 	"25.3",
 	"25.2",
