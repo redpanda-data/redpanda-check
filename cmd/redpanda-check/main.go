@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/vuldin/redpanda-check/internal/admin"
 	"github.com/vuldin/redpanda-check/internal/checker"
 	"github.com/vuldin/redpanda-check/internal/checks"
@@ -18,6 +22,24 @@ import (
 var version = "dev"
 
 func main() {
+	root := newRootCmd()
+
+	// Handle --help-autocomplete for rpk plugin integration.
+	if len(os.Args) > 1 && os.Args[1] == "--help-autocomplete" {
+		if err := printAutocomplete(os.Stdout, root); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if err := root.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func newRootCmd() *cobra.Command {
 	var (
 		adminURLs     []string
 		tlsCA         string
@@ -89,16 +111,7 @@ By default only failed and warning checks are shown. Use -a to see all results.`
 	f.BoolVarP(&showAll, "all", "a", false, "Show all checks including passing and skipped")
 	f.BoolVar(&showVersion, "version", false, "Print version and exit")
 
-	// Handle --help-autocomplete for rpk plugin integration.
-	if len(os.Args) > 1 && os.Args[1] == "--help-autocomplete" {
-		printAutocomplete()
-		return
-	}
-
-	if err := root.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	return root
 }
 
 type runConfig struct {
@@ -251,22 +264,102 @@ func resolveNamespace(ns string) string {
 	return "redpanda"
 }
 
+// pluginHelp is one entry of the --help-autocomplete output rpk reads.
+// Use is the command's cobra Use line, positional arguments included, so
+// rpk can print them in the command's usage. Older rpk ignores it.
 type pluginHelp struct {
-	Path    string   `json:"path"`
-	Short   string   `json:"short"`
-	Long    string   `json:"long"`
-	Example string   `json:"example"`
-	Args    []string `json:"args"`
+	Path    string       `json:"path"`
+	Short   string       `json:"short"`
+	Long    string       `json:"long"`
+	Example string       `json:"example"`
+	Args    []string     `json:"args"`
+	Use     string       `json:"use"`
+	Flags   []pluginFlag `json:"flags"`
 }
 
-func printAutocomplete() {
-	helps := []pluginHelp{
-		{
-			Path:  "check",
-			Short: "Production readiness checks for Redpanda deployments",
-			Long:  "Validates a Redpanda deployment against production readiness standards.",
-		},
+// pluginFlag matches the flag shape rpk prints in --print-tree.
+type pluginFlag struct {
+	Name        string `json:"name"`
+	Shorthand   string `json:"shorthand,omitempty"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	Default     any    `json:"default"`
+	Required    bool   `json:"required"`
+	Deprecated  string `json:"deprecated,omitempty"`
+}
+
+func printAutocomplete(w io.Writer, root *cobra.Command) error {
+	var helps []pluginHelp
+	walkHelps(root, "check", &helps)
+	return json.NewEncoder(w).Encode(helps)
+}
+
+// walkHelps adds an entry for cmd and each visible subcommand. Cobra's help
+// and completion commands are skipped because rpk provides its own.
+func walkHelps(cmd *cobra.Command, path string, out *[]pluginHelp) {
+	args := []string{}
+	flags := []pluginFlag{}
+	cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+		if f.Hidden || f.Name == "help" {
+			return
+		}
+		args = append(args, "--"+f.Name)
+		flags = append(flags, pluginFlag{
+			Name:        f.Name,
+			Shorthand:   f.Shorthand,
+			Type:        f.Value.Type(),
+			Description: f.Usage,
+			Default:     parseDefault(f),
+			Required:    slices.Contains(f.Annotations[cobra.BashCompOneRequiredFlag], "true"),
+			Deprecated:  f.Deprecated,
+		})
+	})
+	*out = append(*out, pluginHelp{
+		Path:    path,
+		Short:   cmd.Short,
+		Long:    cmd.Long,
+		Example: cmd.Example,
+		Args:    args,
+		Use:     cmd.Use,
+		Flags:   flags,
+	})
+	for _, sub := range cmd.Commands() {
+		if sub.Hidden || sub.Name() == "help" || sub.Name() == "completion" {
+			continue
+		}
+		walkHelps(sub, path+"_"+sub.Name(), out)
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.Encode(helps)
+}
+
+// parseDefault types a flag default the same way rpk does in --print-tree.
+func parseDefault(f *pflag.Flag) any {
+	t := f.Value.Type()
+	if strings.HasSuffix(t, "Slice") || strings.HasSuffix(t, "Array") {
+		if f.DefValue == "" || f.DefValue == "[]" {
+			return []any{}
+		}
+		return f.DefValue
+	}
+	if f.DefValue == "" {
+		if t == "string" {
+			return ""
+		}
+		return nil
+	}
+	switch t {
+	case "bool":
+		if b, err := strconv.ParseBool(f.DefValue); err == nil {
+			return b
+		}
+	case "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64", "count":
+		if n, err := strconv.ParseInt(f.DefValue, 10, 64); err == nil {
+			return n
+		}
+	case "float32", "float64":
+		if x, err := strconv.ParseFloat(f.DefValue, 64); err == nil {
+			return x
+		}
+	}
+	return f.DefValue
 }
