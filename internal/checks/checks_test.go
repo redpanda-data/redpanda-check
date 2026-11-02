@@ -360,6 +360,42 @@ func TestOverprovisioned_Pass(t *testing.T) {
 	}
 }
 
+func TestOverprovisioned_Fail_Enabled(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"overprovisioned": true,
+		}),
+	})
+	checks.Overprovisioned(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestOverprovisioned_Skip_KeyAbsent(t *testing.T) {
+	// Regression test for redpanda-check#11: /v1/node_config never returns
+	// the rpk: section in practice, so "overprovisioned" is always absent.
+	// That must SKIP, not silently PASS a cluster that's actually
+	// overprovisioned.
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"some_other_key": true,
+		}),
+	})
+	checks.Overprovisioned(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
 // --- ReplicationFactor ---
 
 func TestReplicationFactor_Pass(t *testing.T) {
