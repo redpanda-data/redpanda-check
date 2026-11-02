@@ -6,3 +6,6 @@ dist/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Redpanda license files used for local testing
+*.license
