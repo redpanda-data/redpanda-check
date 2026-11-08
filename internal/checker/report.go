@@ -30,6 +30,9 @@ func statusOrder(s CheckStatus) int {
 // Kubernetes production readiness checklist; otherwise the bare-metal one.
 func PrintText(w io.Writer, report Report, verbose bool, isK8s bool) {
 	fmt.Fprintln(w, "Redpanda Production Readiness Check")
+	if a := report.AdminAPI; a != nil {
+		fmt.Fprintf(w, "Admin API: %s (%s)\n", strings.Join(a.Addresses, ", "), a.Source)
+	}
 	fmt.Fprintln(w)
 
 	// Split checks by level.

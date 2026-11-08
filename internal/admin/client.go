@@ -1,9 +1,11 @@
 package admin
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"os"
 
 	"github.com/redpanda-data/common-go/rpadmin"
@@ -18,6 +20,11 @@ type Config struct {
 	TLSSkipVerify bool
 	SASLUser      string
 	SASLPassword  string
+	// RootCAs, when set, enables TLS and is used instead of TLSCa.
+	RootCAs *x509.CertPool
+	// Dialer, when set, opens every connection (e.g. a Kubernetes
+	// port-forward).
+	Dialer func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // NewClient builds an rpadmin.AdminAPI from the given Config.
@@ -27,11 +34,14 @@ func NewClient(cfg Config) (*rpadmin.AdminAPI, error) {
 	}
 
 	var tc *tls.Config
-	if cfg.TLSCa != "" || cfg.TLSCert != "" || cfg.TLSSkipVerify {
+	if cfg.TLSCa != "" || cfg.TLSCert != "" || cfg.TLSSkipVerify || cfg.RootCAs != nil {
 		var err error
 		tc, err = buildTLSConfig(cfg.TLSCa, cfg.TLSCert, cfg.TLSKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to build TLS config: %v", err)
+		}
+		if cfg.RootCAs != nil {
+			tc.RootCAs = cfg.RootCAs
 		}
 		if cfg.TLSSkipVerify {
 			tc.InsecureSkipVerify = true
@@ -45,20 +55,32 @@ func NewClient(cfg Config) (*rpadmin.AdminAPI, error) {
 		auth = &rpadmin.NopAuth{}
 	}
 
+	if cfg.Dialer != nil {
+		return rpadmin.NewAdminAPIWithDialer(cfg.Addresses, auth, tc, cfg.Dialer)
+	}
 	return rpadmin.NewAdminAPI(cfg.Addresses, auth, tc)
+}
+
+// LoadCA reads a PEM CA bundle from path.
+func LoadCA(path string) (*x509.CertPool, error) {
+	caPEM, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read CA file %q: %v", path, err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("unable to parse CA certificate from %q", path)
+	}
+	return pool, nil
 }
 
 func buildTLSConfig(caPath, certPath, keyPath string) (*tls.Config, error) {
 	tc := &tls.Config{MinVersion: tls.VersionTLS12}
 
 	if caPath != "" {
-		caPEM, err := os.ReadFile(caPath)
+		pool, err := LoadCA(caPath)
 		if err != nil {
-			return nil, fmt.Errorf("unable to read CA file %q: %v", caPath, err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caPEM) {
-			return nil, fmt.Errorf("unable to parse CA certificate from %q", caPath)
+			return nil, err
 		}
 		tc.RootCAs = pool
 	}

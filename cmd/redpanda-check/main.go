@@ -139,48 +139,65 @@ type runConfig struct {
 func run(ctx context.Context, cfg runConfig) error {
 	ns := resolveNamespace(cfg.namespace)
 
-	// Attempt K8s client setup for discovery and/or K8s-specific checks.
-	var k8sClient kubernetes.Interface
-	var discoveredAddrs []string
-
-	if len(cfg.adminURLs) == 0 || cfg.namespace != "" {
-		cl, err := k8s.NewClient(cfg.kubeconfig)
-		if err == nil {
-			k8sClient = cl
-			addrs, err := k8s.DiscoverAdminAddresses(ctx, cl, ns)
-			if err == nil && len(addrs) > 0 {
-				discoveredAddrs = addrs
-			}
-		}
-	}
-
-	if len(cfg.adminURLs) == 0 {
-		if len(discoveredAddrs) > 0 {
-			cfg.adminURLs = discoveredAddrs
-			fmt.Fprintf(os.Stderr, "Discovered Redpanda in namespace %q with %d brokers\n", ns, len(cfg.adminURLs))
-		} else {
-			return fmt.Errorf("no --admin-url provided and Kubernetes discovery failed; specify --admin-url")
-		}
-	}
-
 	if cfg.tlsSkipVerify {
 		fmt.Fprintf(os.Stderr, "WARNING: TLS certificate verification is disabled. Do not use --admin-tls-skip-verify in production.\n")
 	}
 
-	// Build admin API client.
-	adminClient, err := admin.NewClient(admin.Config{
-		Addresses:     cfg.adminURLs,
-		TLSCa:        cfg.tlsCA,
-		TLSCert:      cfg.tlsCert,
-		TLSKey:       cfg.tlsKey,
+	base := admin.Config{
+		TLSCa:         cfg.tlsCA,
+		TLSCert:       cfg.tlsCert,
+		TLSKey:        cfg.tlsKey,
 		TLSSkipVerify: cfg.tlsSkipVerify,
 		SASLUser:      cfg.saslUser,
 		SASLPassword:  cfg.saslPass,
-	})
-	if err != nil {
-		return fmt.Errorf("unable to create admin API client: %v", err)
 	}
-	defer adminClient.Close()
+
+	// Attempt K8s client setup for discovery and/or K8s-specific checks.
+	var k8sClient kubernetes.Interface
+	var disc *adminTarget
+	var discErr error
+	if len(cfg.adminURLs) == 0 || cfg.namespace != "" {
+		kc, err := k8s.NewClient(cfg.kubeconfig)
+		if err != nil {
+			discErr = err
+		} else {
+			k8sClient = kc.Kube
+			brokers, err := k8s.DiscoverBrokers(ctx, kc.Kube, ns)
+			if err != nil {
+				discErr = err
+			} else {
+				disc, discErr = discoveredTarget(ctx, kc, ns, brokers, base)
+			}
+		}
+	}
+
+	var flag *adminTarget
+	if len(cfg.adminURLs) > 0 {
+		fc := base
+		fc.Addresses = cfg.adminURLs
+		t, err := newTarget(fc, "--admin-url", false, nil)
+		switch {
+		case err == nil:
+			flag = t
+		case disc == nil:
+			return fmt.Errorf("unable to create admin API client: %v", err)
+		default:
+			fmt.Fprintf(os.Stderr, "WARNING: ignoring --admin-url %s: %v\n", joinAddrs(cfg.adminURLs), err)
+		}
+	}
+
+	choice, err := chooseAdmin(ctx, flag, disc, discErr, cfg.namespace != "", ns, clusterUUID)
+	if err != nil {
+		return err
+	}
+	defer choice.Close()
+	for _, w := range choice.warnings {
+		fmt.Fprintf(os.Stderr, "WARNING: %s\n", w)
+	}
+	if choice.discovered {
+		fmt.Fprintf(os.Stderr, "Discovered Redpanda in namespace %q with %d brokers\n", ns, len(choice.addresses))
+	}
+	adminClient := choice.client
 
 	// Build the checker with shared clients.
 	pc := &checker.ProductionChecker{
@@ -243,6 +260,7 @@ func run(ctx context.Context, cfg runConfig) error {
 
 	// Generate and print report.
 	report := checker.NewReport(pc.Results)
+	report.AdminAPI = &checker.AdminAPIInfo{Addresses: choice.addresses, Source: choice.source}
 
 	switch strings.ToLower(cfg.format) {
 	case "json":

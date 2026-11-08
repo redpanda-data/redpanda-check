@@ -161,3 +161,31 @@ func TestPrintJSON(t *testing.T) {
 		t.Errorf("expected 1 check in JSON, got %d", len(decoded.Checks))
 	}
 }
+
+func TestReport_AdminAPI(t *testing.T) {
+	report := checker.NewReport(nil)
+	report.AdminAPI = &checker.AdminAPIInfo{
+		Addresses: []string{"rp-0.rp.redpanda.svc.cluster.local:9644"},
+		Source:    "discovered in namespace redpanda via port-forward",
+	}
+
+	var buf bytes.Buffer
+	checker.PrintText(&buf, report, false, true)
+	want := "Admin API: rp-0.rp.redpanda.svc.cluster.local:9644 (discovered in namespace redpanda via port-forward)"
+	if !strings.Contains(buf.String(), want) {
+		t.Errorf("text output missing %q:\n%s", want, buf.String())
+	}
+
+	buf.Reset()
+	if err := checker.PrintJSON(&buf, report); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	a, ok := got["admin_api"].(map[string]any)
+	if !ok || a["source"] != report.AdminAPI.Source {
+		t.Errorf("JSON admin_api = %v", got["admin_api"])
+	}
+}

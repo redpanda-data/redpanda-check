@@ -46,13 +46,18 @@ func DebugBundlePermissions(ctx context.Context, pc *checker.ProductionChecker) 
 	// replaced by rpadmin's generic "unable to issue a single-admin-endpoint
 	// request to N admin endpoints" error -- which reads like a client/
 	// profile misconfiguration rather than a missing endpoint
-	// (redpanda-check#13). Falls back to the shared client if no broker is
-	// resolvable.
+	// (redpanda-check#13). Uses the first broker that maps to one of the
+	// configured URLs: on a StretchCluster only the brokers in the current
+	// Kubernetes context are configured. Falls back to the shared client if
+	// no broker is resolvable.
 	client := pc.AdminClient
-	if brokers, err := pc.BrokerList(ctx); err == nil && len(brokers) > 0 {
-		if bc, err := pc.AdminClient.ForBroker(ctx, brokers[0].NodeID); err == nil {
-			defer bc.Close()
-			client = bc
+	if brokers, err := pc.BrokerList(ctx); err == nil {
+		for _, b := range brokers {
+			if bc, err := pc.AdminClient.ForBroker(ctx, b.NodeID); err == nil {
+				defer bc.Close()
+				client = bc
+				break
+			}
 		}
 	}
 
