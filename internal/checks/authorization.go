@@ -8,15 +8,17 @@ import (
 	"github.com/vuldin/redpanda-check/internal/checker"
 )
 
-// Authorization validates that SASL authentication is enabled.
+// Authorization validates that Kafka clients must authenticate.
 //
-// There are two ways to enable SASL in Redpanda:
+// There are two ways to require authentication in Redpanda:
 //  1. Global: enable_sasl=true enables SASL on all Kafka listeners.
 //  2. Per-listener: kafka_enable_authorization=true plus each kafka_api
-//     listener must have authentication_method: sasl.
+//     listener sets authentication_method to sasl or mtls_identity. With
+//     mtls_identity the principal comes from the client certificate
+//     (kafka_mtls_principal_mapping_rules), and ACLs apply to it like a SASL user.
 //
 // If the per-listener approach is used, this check verifies every listener
-// on every broker has authentication_method set to "sasl".
+// on every broker authenticates clients with one of those methods.
 func Authorization(ctx context.Context, pc *checker.ProductionChecker) {
 	r := checker.CheckResult{
 		Name:        "authorization_enabled",
@@ -82,23 +84,23 @@ func Authorization(ctx context.Context, pc *checker.ProductionChecker) {
 				name = fmt.Sprintf("port %v", m["port"])
 			}
 			authMethod, _ := m["authentication_method"].(string)
-			if authMethod != "sasl" {
-				if authMethod == "" {
-					missing = append(missing, fmt.Sprintf("broker %s, listener %s: authentication_method not set", brokerID, name))
-				} else {
-					missing = append(missing, fmt.Sprintf("broker %s, listener %s: authentication_method=%q (expected sasl)", brokerID, name, authMethod))
-				}
+			switch authMethod {
+			case "sasl", "mtls_identity":
+			case "":
+				missing = append(missing, fmt.Sprintf("broker %s, listener %s: authentication_method not set", brokerID, name))
+			default:
+				missing = append(missing, fmt.Sprintf("broker %s, listener %s: authentication_method=%q (expected sasl or mtls_identity)", brokerID, name, authMethod))
 			}
 		}
 	}
 
 	if len(missing) > 0 {
 		r.Status = checker.StatusFail
-		r.Details = fmt.Sprintf("kafka_enable_authorization is enabled but listeners missing SASL:\n%s",
+		r.Details = fmt.Sprintf("kafka_enable_authorization is enabled but listeners don't authenticate clients:\n%s",
 			strings.Join(missing, "\n"))
 	} else {
 		r.Status = checker.StatusPass
-		r.Details = "Authorization enabled (kafka_enable_authorization with per-listener SASL)"
+		r.Details = "Authorization enabled (kafka_enable_authorization with per-listener SASL or mTLS identity)"
 	}
 	pc.AddResult(r)
 }
