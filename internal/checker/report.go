@@ -26,8 +26,9 @@ func statusOrder(s CheckStatus) int {
 }
 
 // PrintText writes a human-readable report to w. When verbose is false, only
-// non-passing checks are shown. When isK8s is true, the footer references the
-// Kubernetes production readiness checklist; otherwise the bare-metal one.
+// non-passing checks are shown. When isK8s is true, the footer links to the
+// manual checks in the Kubernetes production readiness checklist; otherwise
+// to the manual checks in the Linux (bare-metal/VM) checklist.
 func PrintText(w io.Writer, report Report, verbose bool, isK8s bool) {
 	fmt.Fprintln(w, "Redpanda Production Readiness Check")
 	fmt.Fprintln(w)
@@ -67,12 +68,25 @@ func PrintText(w io.Writer, report Report, verbose bool, isK8s bool) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Note: Some production readiness requirements (monitoring, backup/DR strategy,")
 	fmt.Fprintln(w, "upgrade policy, etc.) cannot be verified programmatically.")
-	fmt.Fprintln(w, "Review the full checklist for your deployment type:")
+	fmt.Fprintln(w, "Review the manual checks for your deployment type:")
+	fmt.Fprintf(w, "  %s\n", ManualChecksURL(isK8s))
+}
+
+// Links to the "Manual checks" part of each production readiness checklist.
+// The anchors (#linux-manual-checks, #k8s-manual-checks) are explicit IDs in
+// the docs source, so they don't change when headings are reworded.
+const (
+	linuxManualChecksURL = "https://docs.redpanda.com/streaming/current/deploy/redpanda/manual/production/production-readiness/#linux-manual-checks"
+	k8sManualChecksURL   = "https://docs.redpanda.com/streaming/current/deploy/redpanda/kubernetes/k-production-readiness/#k8s-manual-checks"
+)
+
+// ManualChecksURL returns the docs link to the manual checks that this tool
+// can't verify, for the Kubernetes or the Linux checklist.
+func ManualChecksURL(isK8s bool) string {
 	if isK8s {
-		fmt.Fprintln(w, "  https://docs.redpanda.com/current/deploy/redpanda/kubernetes/k-production-readiness/")
-	} else {
-		fmt.Fprintln(w, "  https://docs.redpanda.com/current/deploy/redpanda/manual/production/production-readiness/")
+		return k8sManualChecksURL
 	}
+	return linuxManualChecksURL
 }
 
 func printSection(w io.Writer, title string, checks []CheckResult, verbose bool) {
