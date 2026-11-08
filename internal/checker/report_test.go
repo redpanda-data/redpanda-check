@@ -161,3 +161,45 @@ func TestPrintJSON(t *testing.T) {
 		t.Errorf("expected 1 check in JSON, got %d", len(decoded.Checks))
 	}
 }
+
+func TestPrintText_FooterLinksToManualChecks(t *testing.T) {
+	report := checker.NewReport([]checker.CheckResult{
+		{Name: "pass_check", Description: "Passes", Status: checker.StatusPass},
+	})
+
+	cases := []struct {
+		name   string
+		isK8s  bool
+		want   string
+		absent string
+	}{
+		{
+			name:   "linux",
+			isK8s:  false,
+			want:   "https://docs.redpanda.com/streaming/current/deploy/redpanda/manual/production/production-readiness/#linux-manual-checks",
+			absent: "k-production-readiness",
+		},
+		{
+			name:   "kubernetes",
+			isK8s:  true,
+			want:   "https://docs.redpanda.com/streaming/current/deploy/redpanda/kubernetes/k-production-readiness/#k8s-manual-checks",
+			absent: "manual/production/production-readiness",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			checker.PrintText(&buf, report, false, tc.isK8s)
+			out := buf.String()
+			if !strings.Contains(out, "  "+tc.want+"\n") {
+				t.Errorf("footer should link to %s, got:\n%s", tc.want, out)
+			}
+			if strings.Contains(out, tc.absent) {
+				t.Errorf("footer should not link to the other deployment type's checklist (%s)", tc.absent)
+			}
+			if checker.ManualChecksURL(tc.isK8s) != tc.want {
+				t.Errorf("ManualChecksURL(%v) = %s, want %s", tc.isK8s, checker.ManualChecksURL(tc.isK8s), tc.want)
+			}
+		})
+	}
+}

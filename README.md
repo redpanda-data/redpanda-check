@@ -159,8 +159,8 @@ The process exits with code 1 if any critical check fails.
 All checks run against the admin API and work regardless of how Redpanda was deployed (Helm, operator, Ansible, bare metal). Checks that require Kubernetes are skipped when no `--namespace` is provided.
 
 Based on the Redpanda production readiness checklists:
-- [Bare metal / VM](https://docs.redpanda.com/current/deploy/redpanda/manual/production/production-readiness/)
-- [Kubernetes](https://docs.redpanda.com/current/deploy/redpanda/kubernetes/k-production-readiness/)
+- [Bare metal / VM](https://docs.redpanda.com/streaming/current/deploy/redpanda/manual/production/production-readiness/)
+- [Kubernetes](https://docs.redpanda.com/streaming/current/deploy/redpanda/kubernetes/k-production-readiness/)
 
 ### Critical
 
