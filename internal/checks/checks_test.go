@@ -536,6 +536,51 @@ func TestAuthorization_Pass_PerListenerSASL(t *testing.T) {
 	}
 }
 
+func TestAuthorization_Pass_PerListenerMTLSIdentity(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/cluster_config": jsonHandler(t, map[string]any{
+			"kafka_enable_authorization": true,
+			"enable_sasl":               false,
+		}),
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"kafka_api": []any{
+				map[string]any{"name": "internal", "address": "0.0.0.0", "port": float64(9092), "authentication_method": "sasl"},
+				map[string]any{"name": "mtls", "address": "0.0.0.0", "port": float64(9093), "authentication_method": "mtls_identity"},
+			},
+		}),
+	})
+	checks.Authorization(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestAuthorization_Fail_PerListenerNone(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/cluster_config": jsonHandler(t, map[string]any{
+			"kafka_enable_authorization": true,
+			"enable_sasl":               false,
+		}),
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"kafka_api": []any{
+				map[string]any{"name": "internal", "address": "0.0.0.0", "port": float64(9092), "authentication_method": "none"},
+			},
+		}),
+	})
+	checks.Authorization(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
 func TestAuthorization_Fail_NeitherEnabled(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
 		"/v1/cluster_config": jsonHandler(t, map[string]any{
