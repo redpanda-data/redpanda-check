@@ -35,6 +35,14 @@ type Report struct {
 	OverallStatus CheckStatus  `json:"overall_status"`
 	Summary       Summary      `json:"summary"`
 	Checks        []CheckResult `json:"checks"`
+	AdminAPI      *AdminAPIInfo `json:"admin_api,omitempty"`
+}
+
+// AdminAPIInfo records which admin API addresses the checks used and where
+// they came from, so a report always says which cluster it describes.
+type AdminAPIInfo struct {
+	Addresses []string `json:"addresses"`
+	Source    string   `json:"source"`
 }
 
 // Summary provides a count of check results by status.

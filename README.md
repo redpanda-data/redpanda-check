@@ -114,17 +114,25 @@ Point it at your Redpanda admin API:
 redpanda-check --admin-url localhost:9644
 ```
 
-For Kubernetes deployments, pass a namespace to enable K8s-specific checks (resource limits, PDBs, storage validation):
+For Kubernetes deployments, pass a namespace. That enables the K8s-specific checks (resource limits, PDBs, storage validation) and finds the brokers in that namespace with the current kubeconfig context:
 
 ```
-redpanda-check --admin-url localhost:9644 --namespace redpanda
+rpk check --namespace redpanda
 ```
 
-If you omit `--admin-url`, the tool attempts to discover admin API endpoints from Kubernetes using the current kubeconfig context:
+With `--namespace`, the admin API checks run against the brokers in that namespace:
 
-```
-redpanda-check --namespace redpanda
-```
+- Run from outside the cluster, it reaches each broker through a Kubernetes port-forward. Run from inside a pod, it connects to the brokers directly.
+- If the admin listener uses TLS, it uses `--admin-tls-ca` when that verifies the broker certificate. Otherwise it reads the `ca.crt` from the TLS Secrets the broker pods mount under `/etc/tls/`. Those Secrets also hold the brokers' private keys, so pass `--admin-tls-ca` if you don't want them read. No other Secrets are read, including the superuser credentials; pass SASL credentials with `--sasl-user` and `REDPANDA_SASL_PASSWORD`.
+- `rpk check` always passes an `--admin-url`, taken from your rpk profile or `127.0.0.1:9644`. That address is used only if it reports the same cluster UUID as the brokers in the namespace. Otherwise the tool prints a warning and uses the brokers it found.
+- If `--admin-url` answers for a different cluster, its SASL credentials and client certificate aren't sent to the brokers in the namespace. To pass credentials for the namespace's cluster, use `rpk check --ignore-profile -n <ns> --sasl-user <user>` with `REDPANDA_SASL_PASSWORD` set.
+- Broker addresses are built with the cluster domain `cluster.local`, unless the tool runs inside the cluster and can look the domain up. From outside a cluster with another domain, TLS verification fails, and the admin API checks fall back to `--admin-url`.
+
+The first line of the report shows which admin addresses were checked and where they came from. In JSON, it's the `admin_api` field.
+
+Kubernetes permissions needed in the namespace, beyond reading pods and services: `create` on `pods/portforward` (outside the cluster only) and `get` on `secrets` (TLS only). Without them, the admin API checks fall back to `--admin-url` and say so.
+
+**StretchCluster:** run the command once per kube context. Each run checks the cluster through that context's brokers. Cluster-wide admin API checks (health, broker count, versions, rack awareness) cover the whole cluster. The checks that read each broker, and the Kubernetes checks, cover only that context's brokers and pools; the output says so, for example `2/5 brokers checked`.
 
 ### Authentication
 
