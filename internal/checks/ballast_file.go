@@ -58,6 +58,8 @@ func BallastFile(ctx context.Context, pc *checker.ProductionChecker) {
 	}
 
 	switch {
+	case checked == 0 && ballastFileFromK8s(ctx, pc, &r):
+		// Read from the pods' redpanda.yaml instead.
 	case checked == 0:
 		r.Status = checker.StatusSkip
 		r.Details = "Unable to determine ballast file configuration: /v1/node_config does not expose the rpk: config section on any broker checked"

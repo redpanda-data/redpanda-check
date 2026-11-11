@@ -46,6 +46,8 @@ func Overprovisioned(ctx context.Context, pc *checker.ProductionChecker) {
 	}
 
 	switch {
+	case present == 0 && overprovisionedFromK8s(ctx, pc, &r):
+		// Read from the pods' redpanda.yaml instead.
 	case present == 0:
 		r.Status = checker.StatusSkip
 		r.Details = "Unable to determine overprovisioned state: /v1/node_config does not expose the rpk: config section on any broker checked"
