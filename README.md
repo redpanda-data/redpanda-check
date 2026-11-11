@@ -176,7 +176,7 @@ Must pass for production readiness. Failures exit with code 1.
 | broker_membership | All brokers active (not decommissioning) |
 | maintenance_mode | No brokers in maintenance mode |
 | developer_mode | Developer mode disabled |
-| overprovisioned | Overprovisioned mode disabled |
+| overprovisioned | Overprovisioned mode disabled (in Kubernetes, read from `rpk.overprovisioned` in the broker pods' redpanda.yaml ConfigMap) |
 | replication_factor | Default topic replication factor >= 3 |
 | min_topic_replications | Minimum topic replications >= 3 |
 | existing_topics_replication | All topics have replication factor >= 3 |
@@ -207,7 +207,7 @@ Best practices. Failures produce warnings but do not affect exit code.
 | audit_logging | Audit logging enabled |
 | core_balancing | Core balancing on core count change enabled |
 | partition_balancer_status | Partition balancer not stalled |
-| ballast_file | Ballast file configured (checked per-broker) |
+| ballast_file | Ballast file configured (checked per-broker; in Kubernetes, `rpk.tune_ballast_file` in the broker pods' redpanda.yaml ConfigMap) |
 | debug_bundle_permissions | `rpk debug bundle --dry-run` on each broker reports no permission gaps (file access, command availability, K8s RBAC) |
 | storage_class_validation | StorageClass provisioner and parameters match cloud provider best practices (K8s) |
 | cpu_memory_ratio_recommended | Memory-to-CPU ratio >= 4 GiB per core |
